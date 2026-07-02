@@ -40,7 +40,7 @@ builder.Services.AddTransient<IFeedbackRepository, FeedbackRepository>();
 builder.Services.AddTransient<ICalificacionRepository, CalificacionRepository>();
 builder.Services.AddTransient<IMovimientoWalletRepository, MovimientoWalletRepository>();
 builder.Services.AddTransient<IRetiroRepository, RetiroRepository>();
-builder.Services.AddTransient<IAdminService, AdminService>();
+builder.Services.AddHttpClient<IAdminService, AdminService>();
 builder.Services.AddTransient<IEmailService, EmailService>();
 builder.Services.AddTransient<INotificacionesRepository, NotificacionesRepository>();
 builder.Services.AddTransient<IRecargaRepository, RecargaRepository>();
