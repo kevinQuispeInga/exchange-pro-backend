@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using UESAN.ExchangePro.CORE.Core.DTOs;
 using UESAN.ExchangePro.CORE.Core.Interfaces;
 using System;
@@ -25,18 +25,13 @@ namespace UESAN.ExchangePro.API.Controllers
                 if (resultado)
                     return Ok(new { mensaje = "Usuario registrado y Wallet creada con éxito." });
 
-                return BadRequest("No se pudo registrar el usuario.");
+                return BadRequest(new { error = "No se pudo registrar el usuario." });
             }
             catch (Exception ex)
             {
-                
-                var mensaje = ex.Message;
-                if (ex.InnerException != null)
-                    mensaje += " | Detalle: " + ex.InnerException.Message;
-
-                return BadRequest(new { error = mensaje });
+                var mensajeAmigable = ObtenerMensajeErrorAmigable(ex, registroDTO);
+                return BadRequest(new { error = mensajeAmigable });
             }
-           
         }
 
         [HttpPost("login")]
@@ -81,6 +76,38 @@ namespace UESAN.ExchangePro.API.Controllers
             {
                 return BadRequest(new { error = ex.Message });
             }
+        }
+
+        private string ObtenerMensajeErrorAmigable(Exception ex, RegistroDTO dto)
+        {
+            var innerMsg = ex.InnerException?.Message ?? "";
+            
+            // Si es un error de llave única de SQL Server
+            if (innerMsg.Contains("Violation of UNIQUE KEY constraint") || innerMsg.Contains("duplicate key"))
+            {
+                int startIndex = innerMsg.IndexOf("duplicate key value is (");
+                if (startIndex != -1)
+                {
+                    startIndex += "duplicate key value is (".Length;
+                    int endIndex = innerMsg.IndexOf(")", startIndex);
+                    if (endIndex != -1)
+                    {
+                        var valDuplicado = innerMsg.Substring(startIndex, endIndex - startIndex).Trim();
+                        
+                        if (valDuplicado.Equals(dto.DocumentoIdentidad, StringComparison.OrdinalIgnoreCase))
+                            return $"El documento de identidad '{dto.DocumentoIdentidad}' ya se encuentra registrado.";
+                        if (valDuplicado.Equals(dto.Correo, StringComparison.OrdinalIgnoreCase))
+                            return $"El correo electrónico '{dto.Correo}' ya se encuentra registrado.";
+                        if (valDuplicado.Equals(dto.Telefono, StringComparison.OrdinalIgnoreCase))
+                            return $"El número de teléfono '{dto.Telefono}' ya se encuentra registrado.";
+                    }
+                }
+                
+                // Fallback en caso de que no coincida exactamente con los campos
+                return "Ya existe un usuario registrado con algunos de estos datos (Correo, Teléfono o Documento de Identidad).";
+            }
+            
+            return ex.Message;
         }
     }
 }

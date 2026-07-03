@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using UESAN.ExchangePro.CORE.Core.Entities;
 using UESAN.ExchangePro.CORE.Core.Interfaces;
 using UESAN.ExchangePro.CORE.Infrastructure.Data;
@@ -46,6 +46,12 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
         public async Task<IEnumerable<Transacciones>> GetByUsuario(long idUsuario)
         {
             return await _context.Transacciones
+                .Include(t => t.Comprador)
+                .Include(t => t.Vendedor)
+                .Include(t => t.IdOfertaNavigation)
+                    .ThenInclude(o => o.MonedaEntregaNavigation)
+                .Include(t => t.IdOfertaNavigation)
+                    .ThenInclude(o => o.MonedaRecibeNavigation)
                 .Where(t => t.CompradorId == idUsuario || t.VendedorId == idUsuario)
                 .ToListAsync();
         }
@@ -87,7 +93,19 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 var oferta = await _context.Ofertas.FindAsync(transaccion.IdOferta);
                 if (oferta == null) throw new Exception("Oferta original no encontrada.");
 
-                int idMoneda = oferta.MonedaEntrega;
+                // Identificar qué moneda se congeló en el escrow según el tipo de operación:
+                // VENTA: Se retiene MonedaEntrega (el vendedor entrega divisas)
+                // COMPRA: Se retiene MonedaRecibe (el vendedor paga moneda nacional y compra divisas)
+                int idMonedaEscrow = oferta.MonedaEntrega;
+                decimal montoOpATransferir = transaccion.MontoOperacion ?? 0;
+                decimal montoOfertadoTotal = oferta.MontoOfertado;
+
+                if (oferta.TipoOperacion.ToUpper() == "COMPRA")
+                {
+                    idMonedaEscrow = oferta.MonedaRecibe;
+                    montoOpATransferir = (transaccion.MontoOperacion ?? 0) * oferta.TasaCambio;
+                    montoOfertadoTotal = oferta.MontoOfertado * oferta.TasaCambio;
+                }
 
                 // 3. Obtener Wallets (incluyendo sus saldos)
                 var walletVendedor = await _context.Wallets
@@ -102,20 +120,32 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                     throw new Exception("Falta la wallet del comprador o del vendedor en el sistema.");
 
                 // 4. Mover el dinero
-                var saldoVendedor = walletVendedor.WalletSaldos.FirstOrDefault(s => s.IdMoneda == idMoneda);
-                if (saldoVendedor == null || saldoVendedor.SaldoDisponible < transaccion.MontoOperacion)
-                    throw new Exception("El vendedor no tiene saldo suficiente en esta moneda para liberar.");
+                var saldoVendedor = walletVendedor.WalletSaldos.FirstOrDefault(s => s.IdMoneda == idMonedaEscrow);
+                if (saldoVendedor == null || (saldoVendedor.SaldoRetenido ?? 0) < montoOpATransferir)
+                    throw new Exception("El vendedor no tiene saldo retenido suficiente en esta moneda para liberar.");
 
-                var saldoComprador = walletComprador.WalletSaldos.FirstOrDefault(s => s.IdMoneda == idMoneda);
+                var saldoComprador = walletComprador.WalletSaldos.FirstOrDefault(s => s.IdMoneda == idMonedaEscrow);
                 if (saldoComprador == null)
                 {
                     // Si el comprador no tiene billetera para esta moneda, se la creamos en el momento
-                    saldoComprador = new WalletSaldos { IdMoneda = idMoneda, SaldoDisponible = 0, SaldoRetenido = 0 };
+                    saldoComprador = new WalletSaldos { IdMoneda = idMonedaEscrow, SaldoDisponible = 0, SaldoRetenido = 0 };
                     walletComprador.WalletSaldos.Add(saldoComprador);
                 }
 
-                saldoVendedor.SaldoRetenido -= transaccion.MontoOperacion;
-                saldoComprador.SaldoDisponible += transaccion.MontoOperacion;
+                // Liberar el dinero desde el retenido del vendedor al disponible del comprador
+                saldoVendedor.SaldoRetenido -= montoOpATransferir;
+                saldoComprador.SaldoDisponible += montoOpATransferir;
+
+                // Devolver el saldo restante de la oferta (si es parcial) al disponible del vendedor
+                if (montoOfertadoTotal > montoOpATransferir)
+                {
+                    decimal restante = montoOfertadoTotal - montoOpATransferir;
+                    if ((saldoVendedor.SaldoRetenido ?? 0) >= restante)
+                    {
+                        saldoVendedor.SaldoRetenido -= restante;
+                        saldoVendedor.SaldoDisponible = (saldoVendedor.SaldoDisponible ?? 0) + restante;
+                    }
+                }
 
                 // 5. Actualizar los estados finales
                 transaccion.Estado = "COMPLETADO";
@@ -241,7 +271,26 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 if (oferta == null) throw new Exception("Oferta original no encontrada.");
 
                 decimal montoOp = transaccion.MontoOperacion ?? 0;
-                int idMoneda = oferta.MonedaEntrega;
+                int monedaEntrega = oferta.MonedaEntrega;
+                int monedaRecibe = oferta.MonedaRecibe;
+                decimal tasaCambio = oferta.TasaCambio;
+
+                // Calcular cuánto debe pagar el comprador al vendedor en MonedaRecibe
+                decimal montoAPagar = montoOp;
+                if (tasaCambio > 0 && monedaEntrega != monedaRecibe)
+                {
+                    var eCode = await _context.Monedas.Where(m => m.IdMoneda == monedaEntrega).Select(m => m.Codigo).FirstOrDefaultAsync();
+                    var rCode = await _context.Monedas.Where(m => m.IdMoneda == monedaRecibe).Select(m => m.Codigo).FirstOrDefaultAsync();
+                    
+                    if (eCode == "PEN" && rCode == "USD")
+                    {
+                        montoAPagar = Math.Round(montoOp / tasaCambio, 2);
+                    }
+                    else if (eCode == "USD" && rCode == "PEN")
+                    {
+                        montoAPagar = Math.Round(montoOp * tasaCambio, 2);
+                    }
+                }
 
                 var walletComprador = await _context.Wallets
                     .Include(w => w.WalletSaldos)
@@ -253,29 +302,65 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                     .FirstOrDefaultAsync(w => w.IdUsuario == transaccion.VendedorId);
                 if (walletVendedor == null) throw new Exception("El vendedor no tiene billetera.");
 
-                var saldoComprador = walletComprador.WalletSaldos
-                    .FirstOrDefault(s => s.IdMoneda == idMoneda);
-                if (saldoComprador == null || saldoComprador.SaldoDisponible < montoOp)
-                    throw new Exception("Saldo disponible insuficiente en la billetera.");
+                // 1. EL COMPRADOR PAGA AL VENDEDOR (La contraparte del Escrow)
+                // VENTA: Comprador paga en MonedaRecibe (el valor de la compra).
+                // COMPRA: Comprador paga en MonedaEntrega (entrega divisas al vendedor).
+                int monedaPagoComprador = oferta.TipoOperacion.ToUpper() == "COMPRA" ? monedaEntrega : monedaRecibe;
+                decimal montoPagoComprador = oferta.TipoOperacion.ToUpper() == "COMPRA" ? montoOp : montoAPagar;
 
-                saldoComprador.SaldoDisponible -= montoOp;
+                var saldoCompradorPago = walletComprador.WalletSaldos.FirstOrDefault(s => s.IdMoneda == monedaPagoComprador);
+                if (saldoCompradorPago == null || (saldoCompradorPago.SaldoDisponible ?? 0) < montoPagoComprador)
+                    throw new Exception($"Saldo disponible insuficiente en la billetera del comprador para pagar {montoPagoComprador} en la moneda correspondiente.");
 
-                var saldoVendedor = walletVendedor.WalletSaldos
-                    .FirstOrDefault(s => s.IdMoneda == idMoneda);
-                if (saldoVendedor == null)
+                saldoCompradorPago.SaldoDisponible -= montoPagoComprador;
+
+                var saldoVendedorRecibe = walletVendedor.WalletSaldos.FirstOrDefault(s => s.IdMoneda == monedaPagoComprador);
+                if (saldoVendedorRecibe == null)
                 {
-                    saldoVendedor = new WalletSaldos
-                    { IdMoneda = idMoneda, SaldoDisponible = 0, SaldoRetenido = 0 };
-                    walletVendedor.WalletSaldos.Add(saldoVendedor);
+                    saldoVendedorRecibe = new WalletSaldos { IdMoneda = monedaPagoComprador, SaldoDisponible = 0, SaldoRetenido = 0 };
+                    walletVendedor.WalletSaldos.Add(saldoVendedorRecibe);
                 }
-                saldoVendedor.SaldoDisponible += montoOp;
+                saldoVendedorRecibe.SaldoDisponible = (saldoVendedorRecibe.SaldoDisponible ?? 0) + montoPagoComprador;
 
+                // 2. SE LIBERA EL ESCROW DEL VENDEDOR AL COMPRADOR
+                // VENTA: Se libera MonedaEntrega (el vendedor entrega divisas congeladas).
+                // COMPRA: Se libera MonedaRecibe (el vendedor entrega la moneda de pago que estaba congelada).
+                int monedaEscrowVendedor = oferta.TipoOperacion.ToUpper() == "COMPRA" ? monedaRecibe : monedaEntrega;
+                decimal montoEscrowLiberar = oferta.TipoOperacion.ToUpper() == "COMPRA" ? montoAPagar : montoOp;
+                decimal montoOfertadoTotal = oferta.TipoOperacion.ToUpper() == "COMPRA" ? (oferta.MontoOfertado * oferta.TasaCambio) : oferta.MontoOfertado;
+
+                var saldoVendedorEntrega = walletVendedor.WalletSaldos.FirstOrDefault(s => s.IdMoneda == monedaEscrowVendedor);
+                if (saldoVendedorEntrega == null || (saldoVendedorEntrega.SaldoRetenido ?? 0) < montoEscrowLiberar)
+                    throw new Exception("El vendedor no tiene saldo retenido suficiente en la moneda de garantía para liberar.");
+
+                saldoVendedorEntrega.SaldoRetenido -= montoEscrowLiberar;
+
+                var saldoCompradorEntrega = walletComprador.WalletSaldos.FirstOrDefault(s => s.IdMoneda == monedaEscrowVendedor);
+                if (saldoCompradorEntrega == null)
+                {
+                    saldoCompradorEntrega = new WalletSaldos { IdMoneda = monedaEscrowVendedor, SaldoDisponible = 0, SaldoRetenido = 0 };
+                    walletComprador.WalletSaldos.Add(saldoCompradorEntrega);
+                }
+                saldoCompradorEntrega.SaldoDisponible = (saldoCompradorEntrega.SaldoDisponible ?? 0) + montoEscrowLiberar;
+
+                // 3. DEVOLVER EL SALDO RESTANTE DE LA OFERTA (Si es parcial) AL SALDO DISPONIBLE DEL VENDEDOR
+                if (montoOfertadoTotal > montoEscrowLiberar)
+                {
+                    decimal restante = montoOfertadoTotal - montoEscrowLiberar;
+                    if ((saldoVendedorEntrega.SaldoRetenido ?? 0) >= restante)
+                    {
+                        saldoVendedorEntrega.SaldoRetenido -= restante;
+                        saldoVendedorEntrega.SaldoDisponible = (saldoVendedorEntrega.SaldoDisponible ?? 0) + restante;
+                    }
+                }
+
+                // 4. REGISTRAR LOS MOVIMIENTOS EN LA WALLET
                 var movComprador = new MovimientosWallet
                 {
                     IdWallet = walletComprador.IdWallet,
-                    IdMoneda = idMoneda,
+                    IdMoneda = monedaPagoComprador,
                     TipoOperacion = "TRANSFERENCIA_SALIDA",
-                    Monto = montoOp,
+                    Monto = montoPagoComprador,
                     Resultado = "EXITOSO",
                     ReferenciaTipo = "TRANSACCION",
                     ReferenciaId = idTransaccion,
@@ -286,9 +371,9 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 var movVendedor = new MovimientosWallet
                 {
                     IdWallet = walletVendedor.IdWallet,
-                    IdMoneda = idMoneda,
+                    IdMoneda = monedaPagoComprador,
                     TipoOperacion = "TRANSFERENCIA_ENTRADA",
-                    Monto = montoOp,
+                    Monto = montoPagoComprador,
                     Resultado = "EXITOSO",
                     ReferenciaTipo = "TRANSACCION",
                     ReferenciaId = idTransaccion,
@@ -296,6 +381,7 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 };
                 _context.MovimientosWallet.Add(movVendedor);
 
+                // 5. ACTUALIZAR LOS ESTADOS FINALES
                 transaccion.Estado = "COMPLETADO";
                 transaccion.FechaFin = DateTime.UtcNow;
                 oferta.Estado = "FINALIZADA";

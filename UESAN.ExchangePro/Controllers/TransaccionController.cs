@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http; // IMPORTANTE: Necesario para IFormFile
 using System;
@@ -97,17 +97,46 @@ namespace UESAN.ExchangePro.API.Controllers
             var transacciones = await _transRepo.GetByUsuario(idUsuario);
 
             // Mapeamos a DTO para evitar el error 500 de referencias circulares
-            var listaDTO = transacciones.Select(t => new TransaccionResponseDTO
-            {
-                IdTransaccion = t.IdTransaccion,
-                IdOferta = t.IdOferta,
-                CompradorId = t.CompradorId,
-                VendedorId = t.VendedorId,
-                MontoOperacion = t.MontoOperacion,
-                Estado = t.Estado,
-                FechaInicio = t.FechaInicio,
-                Codigo = t.Codigo,
-                RutaComprobante = t.RutaComprobante
+            var listaDTO = transacciones.Select(t => {
+                var oferta = t.IdOfertaNavigation;
+                var monedaEntrega = oferta?.MonedaEntregaNavigation?.Codigo;
+                var monedaRecibe = oferta?.MonedaRecibeNavigation?.Codigo;
+                var compradorNombre = t.Comprador != null ? $"{t.Comprador.Nombres} {t.Comprador.Apellidos}" : "Desconocido";
+                var vendedorNombre = t.Vendedor != null ? $"{t.Vendedor.Nombres} {t.Vendedor.Apellidos}" : "Desconocido";
+                
+                decimal tasaCambio = oferta?.TasaCambio ?? 0m;
+                decimal montoOperacion = t.MontoOperacion ?? 0m;
+                decimal totalPagar = montoOperacion;
+                if (tasaCambio > 0 && !string.IsNullOrEmpty(monedaEntrega) && !string.IsNullOrEmpty(monedaRecibe))
+                {
+                    var e = monedaEntrega.ToUpper();
+                    var r = monedaRecibe.ToUpper();
+                    if (e != r)
+                    {
+                        if (e == "PEN" && r == "USD")
+                            totalPagar = Math.Round(montoOperacion / tasaCambio, 2);
+                        else if (e == "USD" && r == "PEN")
+                            totalPagar = Math.Round(montoOperacion * tasaCambio, 2);
+                    }
+                }
+
+                return new TransaccionResponseDTO
+                {
+                    IdTransaccion = t.IdTransaccion,
+                    IdOferta = t.IdOferta,
+                    CompradorId = t.CompradorId,
+                    VendedorId = t.VendedorId,
+                    MontoOperacion = t.MontoOperacion,
+                    Estado = t.Estado,
+                    FechaInicio = t.FechaInicio,
+                    Codigo = t.Codigo,
+                    RutaComprobante = t.RutaComprobante,
+                    MonedaEntregaCode = monedaEntrega,
+                    MonedaRecibeCode = monedaRecibe,
+                    CompradorNombre = compradorNombre,
+                    VendedorNombre = vendedorNombre,
+                    TotalPagar = totalPagar
+                };
             });
 
             return Ok(listaDTO);

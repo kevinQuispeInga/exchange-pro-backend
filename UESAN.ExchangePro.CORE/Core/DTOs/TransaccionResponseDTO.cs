@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace UESAN.ExchangePro.CORE.Core.DTOs
 {
@@ -13,5 +13,10 @@ namespace UESAN.ExchangePro.CORE.Core.DTOs
         public DateTime? FechaInicio { get; set; }
         public string? Codigo { get; set; }
         public string? RutaComprobante { get; set; }
+        public string? MonedaEntregaCode { get; set; }
+        public string? MonedaRecibeCode { get; set; }
+        public string? CompradorNombre { get; set; }
+        public string? VendedorNombre { get; set; }
+        public decimal? TotalPagar { get; set; }
     }
 }

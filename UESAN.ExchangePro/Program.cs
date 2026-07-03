@@ -12,13 +12,13 @@ using UESAN.ExchangePro.Infrastructure.Repositories;
 var builder = WebApplication.CreateBuilder(args);
 
 // =========================================================================
-// CORREGIDO: CONFIGURACIÓN DE CORS PARA QUASAR (Puerto 9000)
+// CONFIGURACIÓN DE CORS PARA QUASAR (Puerto 9000)
 // =========================================================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowQuasar", policy =>
     {
-        policy.AllowAnyOrigin()                   // Acepta desde cualquier origen (ngrok, localhost, etc.)
+        policy.AllowAnyOrigin()                   
               .AllowAnyMethod()                     // Permite POST, GET, PUT, DELETE
               .AllowAnyHeader();                    // Permite Content-Type, Authorization (JWT)
     });
@@ -78,7 +78,7 @@ if (app.Environment.IsDevelopment())
 //app.UseHttpsRedirection();
 
 // =========================================================================
-// CORREGIDO: ACTIVAR MIDDLEWARE DE RUTAS, CORS y AUTENTICACIÓN
+// ACTIVAR MIDDLEWARE DE RUTAS, CORS y AUTENTICACIÓN
 // =========================================================================
 app.UseRouting();
 app.UseCors("AllowQuasar");

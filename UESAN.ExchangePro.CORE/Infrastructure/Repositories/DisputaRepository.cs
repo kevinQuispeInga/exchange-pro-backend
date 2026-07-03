@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -125,6 +125,19 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
 
                     saldoVendedor.SaldoRetenido -= transaccion.MontoOperacion;
                     saldoComprador.SaldoDisponible += transaccion.MontoOperacion;
+
+                    // CORREGIDO: Devolver el saldo restante de la oferta (si es parcial) al disponible del vendedor
+                    decimal montoOperacion = transaccion.MontoOperacion ?? 0;
+                    decimal montoOfertado = oferta.MontoOfertado;
+                    if (montoOfertado > montoOperacion)
+                    {
+                        decimal restante = montoOfertado - montoOperacion;
+                        if ((saldoVendedor.SaldoRetenido ?? 0) >= restante)
+                        {
+                            saldoVendedor.SaldoRetenido -= restante;
+                            saldoVendedor.SaldoDisponible = (saldoVendedor.SaldoDisponible ?? 0) + restante;
+                        }
+                    }
 
                     transaccion.Estado = "COMPLETADO";
                     oferta.Estado = "FINALIZADA";
