@@ -20,12 +20,25 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
             using var dbTransaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                // Control de concurrencia: intentamos actualizar el estado solo si sigue ACTIVA.
+                // Si dos usuarios hacen clic a la vez, SQL Server encolara las peticiones.
+                // El primero cambiara la fila (filasAfectadas = 1). El segundo intentara actualizar 
+                // pero ya no cumplira la condicion 'Estado = ACTIVA' (filasAfectadas = 0).
+                var filasAfectadas = await _context.Database.ExecuteSqlRawAsync(
+                    "UPDATE Ofertas SET Estado = 'EN_PROCESO' WHERE IdOferta = {0} AND Estado = 'ACTIVA'",
+                    oferta.IdOferta
+                );
+
+                if (filasAfectadas == 0)
+                {
+                    throw new Exception("La oferta ya ha sido tomada por otro usuario o ya no está disponible.");
+                }
+
+                // Sincronizamos el estado de la entidad en memoria
+                oferta.Estado = "EN_PROCESO";
+
                 // Agregamos la nueva transacción
                 await _context.Transacciones.AddAsync(transaccion);
-
-                // Cambiamos el estado de la oferta a EN_PROCESO
-                oferta.Estado = "EN_PROCESO";
-                _context.Ofertas.Update(oferta);
 
                 // Guardamos los cambios
                 await _context.SaveChangesAsync();
@@ -87,7 +100,23 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 var transaccion = await _context.Transacciones.FindAsync(idTransaccion);
                 if (transaccion == null) throw new Exception("Transacción no encontrada.");
                 if (transaccion.VendedorId != idVendedor) throw new Exception("Solo el vendedor puede liberar los fondos.");
-                if (transaccion.Estado != "PAGADO") throw new Exception("El comprador aún no ha marcado esto como PAGADO.");
+
+                // Control de concurrencia: intentamos cambiar el estado de la transacción a COMPLETADO
+                // solo si el estado actual es estrictamente 'PAGADO'.
+                var filasAfectadas = await _context.Database.ExecuteSqlRawAsync(
+                    "UPDATE Transacciones SET Estado = 'COMPLETADO', FechaFin = {0} WHERE IdTransaccion = {1} AND Estado = 'PAGADO'",
+                    DateTime.UtcNow,
+                    idTransaccion
+                );
+
+                if (filasAfectadas == 0)
+                {
+                    throw new Exception("La transacción ya ha sido completada o no está en estado PAGADO.");
+                }
+
+                // Sincronizamos en memoria el estado de la entidad
+                transaccion.Estado = "COMPLETADO";
+                transaccion.FechaFin = DateTime.UtcNow;
 
                 // 2. Obtener la oferta para saber qué moneda estamos moviendo
                 var oferta = await _context.Ofertas.FindAsync(transaccion.IdOferta);
@@ -148,11 +177,9 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 }
 
                 // 5. Actualizar los estados finales
-                transaccion.Estado = "COMPLETADO";
                 oferta.Estado = "FINALIZADA";
 
                 // 6. Guardar todo
-                _context.Transacciones.Update(transaccion);
                 _context.Ofertas.Update(oferta);
                 _context.Wallets.Update(walletVendedor);
                 _context.Wallets.Update(walletComprador);
@@ -264,7 +291,24 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 var transaccion = await _context.Transacciones.FindAsync(idTransaccion);
                 if (transaccion == null) throw new Exception("Transacción no encontrada.");
                 if (transaccion.CompradorId != idComprador) throw new Exception("Solo el comprador puede pagar con wallet.");
-                if (transaccion.Estado != "PENDIENTE") throw new Exception("La transacción no está en estado PENDIENTE.");
+
+                // Control de concurrencia: intentamos cambiar el estado de PENDIENTE a COMPLETADO
+                // de forma atómica para evitar que peticiones concurrentes dupliquen el pago.
+                var filasAfectadas = await _context.Database.ExecuteSqlRawAsync(
+                    "UPDATE Transacciones SET Estado = 'COMPLETADO', FechaFin = {0} WHERE IdTransaccion = {1} AND Estado = 'PENDIENTE'",
+                    DateTime.UtcNow,
+                    idTransaccion
+                );
+
+                if (filasAfectadas == 0)
+                {
+                    throw new Exception("La transacción ya ha sido pagada o cancelada.");
+                }
+
+                // Sincronizamos en memoria el estado de la entidad
+                transaccion.Estado = "COMPLETADO";
+                transaccion.FechaFin = DateTime.UtcNow;
+
                 if (transaccion.IdMetodoPago != 4) throw new Exception("Esta transacción no usa Wallet Interna como método de pago.");
 
                 var oferta = await _context.Ofertas.FindAsync(transaccion.IdOferta);
@@ -381,12 +425,9 @@ namespace UESAN.ExchangePro.Infrastructure.Repositories
                 };
                 _context.MovimientosWallet.Add(movVendedor);
 
-                // 5. ACTUALIZAR LOS ESTADOS FINALES
-                transaccion.Estado = "COMPLETADO";
-                transaccion.FechaFin = DateTime.UtcNow;
+                // 5. ACTUALIZAR LOS ESTADOS FINALES (solo oferta y wallets ya que la transacción se actualizó con SQL directo)
                 oferta.Estado = "FINALIZADA";
 
-                _context.Transacciones.Update(transaccion);
                 _context.Ofertas.Update(oferta);
                 _context.Wallets.Update(walletComprador);
                 _context.Wallets.Update(walletVendedor);

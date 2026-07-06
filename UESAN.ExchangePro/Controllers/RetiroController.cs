@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using UESAN.ExchangePro.CORE.Core.DTOs;
 using UESAN.ExchangePro.CORE.Core.Entities;
@@ -68,9 +68,9 @@ namespace UESAN.ExchangePro.API.Controllers
 
             await _notificacionesRepository.Create(new Notificaciones
             {
-                IdUsuario = null,
-                Titulo = "Nueva solicitud de retiro",
-                Mensaje = $"El usuario {idUsuario} solicitó un retiro de {dto.Monto}.",
+                IdUsuario = idUsuario,
+                Titulo = "Retiro procesado con éxito",
+                Mensaje = $"Se ha retirado {dto.Monto} de tu billetera hacia tu cuenta configurada.",
                 Fecha = DateTime.UtcNow,
                 Leido = false
             });

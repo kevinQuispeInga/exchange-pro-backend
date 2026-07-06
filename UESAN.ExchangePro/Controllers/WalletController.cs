@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using UESAN.ExchangePro.CORE.Core.DTOs;
 using UESAN.ExchangePro.CORE.Core.Entities;
@@ -41,6 +41,12 @@ namespace UESAN.ExchangePro.API.Controllers
         public async Task<IActionResult> Recargar([FromBody] RecargaDTO dto)
         {
             if (dto.Monto <= 0) return BadRequest("El monto debe ser mayor a cero.");
+
+            if (!string.IsNullOrEmpty(dto.NumeroReferencia))
+            {
+                bool existe = await _recargaRepository.ExisteReferencia(dto.NumeroReferencia);
+                if (existe) return BadRequest(new { mensaje = "El número de referencia/operación ya ha sido utilizado." });
+            }
 
             var idUsuario = long.Parse(User.FindFirst("IdUsuario")?.Value ?? "0");
             var wallet = await _walletRepository.GetByUsuarioId(idUsuario);
