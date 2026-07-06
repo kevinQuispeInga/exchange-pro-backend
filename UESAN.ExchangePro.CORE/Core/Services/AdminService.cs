@@ -49,10 +49,14 @@ namespace UESAN.ExchangePro.CORE.Core.Services
             var apiKey = _config["Gemini:ApiKey"];
             if (string.IsNullOrEmpty(apiKey))
             {
+                apiKey = (_config["Gemini:Parte1"] ?? "") + (_config["Gemini:Parte2"] ?? "");
+            }
+            if (string.IsNullOrEmpty(apiKey))
+            {
                 return new ChatbotResponseDTO { Respuesta = "Error: API Key de Gemini no configurada." };
             }
 
-            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={apiKey}";
+            var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={apiKey}";
 
             var systemInstruction = "Eres el asistente oficial de ExchangePro, una plataforma P2P de intercambio de divisas (Soles PEN, Dólares USD, etc.). Tu labor es responder de forma amable, empática y concisa dudas sobre cómo comprar, cómo vender, publicar ofertas, depósitos, retiros y resolución de disputas. Si te preguntan cosas ajenas a ExchangePro o las finanzas P2P, responde de manera cortés indicando que solo puedes asistir en temas relacionados a la plataforma.";
 
