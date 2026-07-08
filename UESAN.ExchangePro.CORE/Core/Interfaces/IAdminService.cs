@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,5 +24,6 @@ namespace UESAN.ExchangePro.CORE.Core.Interfaces
     {
         Task<AdminEstadisticasDTO> GetEstadisticas();
         Task<ChatbotResponseDTO> ChatbotResponder(string mensaje);
+        Task<List<int>> GetHistorial(string metrica, int? anio, int? mes, int? semana);
     }
 }
