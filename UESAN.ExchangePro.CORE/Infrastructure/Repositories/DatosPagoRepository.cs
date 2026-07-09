@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using UESAN.ExchangePro.CORE.Core.Entities;
 using UESAN.ExchangePro.CORE.Infrastructure.Data;
 
@@ -19,5 +19,11 @@ public class DatosPagoRepository : IDatosPagoRepository
             .Where(d => d.IdUsuario == idUsuario)
             .Include(d => d.IdBancoNavigation)
             .ToListAsync();
+    }
+
+    public async Task<bool> Update(DatosPagoUsuario datoPago)
+    {
+        _context.DatosPagoUsuario.Update(datoPago);
+        return await _context.SaveChangesAsync() > 0;
     }
 }
