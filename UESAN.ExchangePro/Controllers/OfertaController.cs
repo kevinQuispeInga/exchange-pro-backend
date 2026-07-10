@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Linq;
@@ -112,7 +112,8 @@ namespace UESAN.ExchangePro.API.Controllers
                 MonedaEntrega = o.MonedaEntrega,
                 MonedaRecibe = o.MonedaRecibe,
                 MonedaEntregaCode = o.MonedaEntregaNavigation?.Codigo,
-                MonedaRecibeCode = o.MonedaRecibeNavigation?.Codigo
+                MonedaRecibeCode = o.MonedaRecibeNavigation?.Codigo,
+                FechaPublicacion = o.FechaPublicacion
             });
 
             return Ok(listaDTO);
@@ -143,7 +144,8 @@ namespace UESAN.ExchangePro.API.Controllers
                 MonedaEntrega = o.MonedaEntrega,
                 MonedaRecibe = o.MonedaRecibe,
                 MonedaEntregaCode = o.MonedaEntregaNavigation?.Codigo,
-                MonedaRecibeCode = o.MonedaRecibeNavigation?.Codigo
+                MonedaRecibeCode = o.MonedaRecibeNavigation?.Codigo,
+                FechaPublicacion = o.FechaPublicacion
             });
 
             return Ok(listaDTO);

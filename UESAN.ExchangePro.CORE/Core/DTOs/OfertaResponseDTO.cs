@@ -1,4 +1,4 @@
-﻿namespace UESAN.ExchangePro.CORE.Core.DTOs
+namespace UESAN.ExchangePro.CORE.Core.DTOs
 {
     public class OfertaResponseDTO
     {
@@ -15,5 +15,6 @@
         public int MonedaRecibe { get; set; }
         public string? MonedaEntregaCode { get; set; }
         public string? MonedaRecibeCode { get; set; }
+        public System.DateTime? FechaPublicacion { get; set; }
     }
 }
